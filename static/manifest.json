@@ -1,0 +1,19 @@
+{
+	"name": "Watchman v0.01 - Dashboard de Monitoramento Global",
+	"short_name": "Watchman",
+	"description": "Dashboard de monitoramento global em tempo real - Versão 0.01 desenvolvida pelo Grupo Murad",
+	"start_url": "/",
+	"scope": "/",
+	"display": "standalone",
+	"background_color": "#0a0a0a",
+	"theme_color": "#0a0a0a",
+	"orientation": "any",
+	"icons": [
+		{
+			"src": "/favicon.svg",
+			"sizes": "any",
+			"type": "image/svg+xml",
+			"purpose": "any maskable"
+		}
+	]
+}
