@@ -257,22 +257,6 @@
 		WIDTH = rect.width || 800;
 		HEIGHT = rect.height || 400;
 
-		// #region agent log
-		fetch('http://127.0.0.1:7677/ingest/5e0c756f-9c62-45e2-85b5-b97035d41e0a', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({
-				sessionId: 'debug-session',
-				runId: 'run-map-size',
-				hypothesisId: 'A',
-				location: 'MapPanel.svelte:updateMapDimensions',
-				message: 'Computed container size',
-				data: { rectWidth: rect.width, rectHeight: rect.height, width: WIDTH, height: HEIGHT },
-				timestamp: Date.now()
-			})
-		}).catch(() => {});
-		// #endregion
-
 		if (svg) {
 			svg.attr('viewBox', `0 0 ${WIDTH} ${HEIGHT}`);
 			if (projection && path && mapGroup) {
@@ -280,22 +264,6 @@
 				// Scale should be approximately WIDTH / (2 * PI) for equirectangular to show full world
 				const newScale = Math.min(WIDTH, HEIGHT * 2) / (2 * Math.PI) * 0.95;
 				projection.scale(newScale).translate([WIDTH / 2, HEIGHT / 2 - 30]);
-
-				// #region agent log
-				fetch('http://127.0.0.1:7677/ingest/5e0c756f-9c62-45e2-85b5-b97035d41e0a', {
-					method: 'POST',
-					headers: { 'Content-Type': 'application/json' },
-					body: JSON.stringify({
-						sessionId: 'debug-session',
-						runId: 'run-map-size',
-						hypothesisId: 'B',
-						location: 'MapPanel.svelte:updateMapDimensions',
-						message: 'Applied projection + viewBox',
-						data: { width: WIDTH, height: HEIGHT },
-						timestamp: Date.now()
-					})
-				}).catch(() => {});
-				// #endregion
 
 				// Redraw map elements
 				mapGroup.selectAll('path').attr('d', path);
@@ -318,22 +286,6 @@
 
 		// Set initial dimensions
 		updateMapDimensions();
-
-		// #region agent log
-		fetch('http://127.0.0.1:7677/ingest/5e0c756f-9c62-45e2-85b5-b97035d41e0a', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({
-				sessionId: 'debug-session',
-				runId: 'run-map-size',
-				hypothesisId: 'C',
-				location: 'MapPanel.svelte:initMap',
-				message: 'Initial dimensions after updateMapDimensions',
-				data: { width: WIDTH, height: HEIGHT },
-				timestamp: Date.now()
-			})
-		}).catch(() => {});
-		// #endregion
 
 		svg = d3.select(svgEl);
 		svg.attr('viewBox', `0 0 ${WIDTH} ${HEIGHT}`);

@@ -42,12 +42,15 @@ const isDev = browser ? (import.meta.env?.DEV ?? false) : false;
 
 /**
  * URLs de proxy CORS para requisições de API externas
- * Primário: Cloudflare Worker customizado (mais rápido, dedicado)
- * Fallback: corsproxy.io (público, pode ter rate limit)
+ * Lista de proxies em ordem de preferência
  */
 export const CORS_PROXIES = {
-	primary: 'https://watchman-proxy.seanthielen-e.workers.dev/?url=',
-	fallback: 'https://corsproxy.io/?url='
+	primary: 'https://corsproxy.io/?url=',
+	fallback: 'https://api.allorigins.win/raw?url=',
+	alternatives: [
+		'https://allorigins.win/get?url=',
+		'https://api.codetabs.com/v1/proxy?quest='
+	]
 } as const;
 
 // Default export for backward compatibility
@@ -55,25 +58,38 @@ export const CORS_PROXY_URL = CORS_PROXIES.fallback;
 
 /**
  * Fetch com fallback de proxy CORS
- * Tenta o proxy primário primeiro, usa o secundário em caso de falha
+ * Tenta proxies em ordem até encontrar um que funcione
  */
 export async function fetchWithProxy(url: string): Promise<Response> {
 	const encodedUrl = encodeURIComponent(url);
+	const allProxies = [
+		CORS_PROXIES.primary,
+		CORS_PROXIES.fallback,
+		...CORS_PROXIES.alternatives
+	];
 
-	// Try primary proxy first
-	try {
-		const response = await fetch(CORS_PROXIES.primary + encodedUrl);
-		if (response.ok) {
-			return response;
+	let lastError: Error | null = null;
+
+	for (const proxy of allProxies) {
+		try {
+			const response = await fetch(proxy + encodedUrl);
+			if (response.ok) {
+				return response;
+			}
+			// 408 (Request Timeout) é esperado em proxies públicos - não logar como erro
+			if (response.status === 408) {
+				lastError = new Error(`Proxy timeout: ${proxy}`);
+				continue;
+			}
+			// Outros erros HTTP - tentar próximo proxy
+			lastError = new Error(`Proxy failed with status ${response.status}: ${proxy}`);
+		} catch (error) {
+			lastError = error as Error;
 		}
-		// If we get an error response, try fallback
-		logger.warn('API', `Primary proxy failed (${response.status}), trying fallback`);
-	} catch (error) {
-		logger.warn('API', 'Primary proxy error, trying fallback:', error);
 	}
 
-	// Fallback to secondary proxy
-	return fetch(CORS_PROXIES.fallback + encodedUrl);
+	// Se todos os proxies falharam, lançar erro
+	throw lastError || new Error('All CORS proxies failed');
 }
 
 /**
@@ -100,7 +116,8 @@ export const CACHE_TTLS = {
 export const DEBUG = {
 	enabled: isDev,
 	logApiCalls: isDev,
-	logCacheHits: false
+	logCacheHits: false,
+	logProxyFallbacks: false // Reduzir verbosidade de fallbacks de proxy
 } as const;
 
 /**
@@ -113,9 +130,14 @@ export const logger = {
 		}
 	},
 	warn: (prefix: string, ...args: unknown[]) => {
+		// Para fallbacks de proxy, verificar flag específica
+		if (prefix === 'API' && args[0]?.toString().includes('proxy') && !DEBUG.logProxyFallbacks) {
+			return;
+		}
 		console.warn(`[${prefix}]`, ...args);
 	},
 	error: (prefix: string, ...args: unknown[]) => {
+		// Erros sempre são logados
 		console.error(`[${prefix}]`, ...args);
 	}
 };

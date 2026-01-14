@@ -36,19 +36,47 @@
 		e.preventDefault();
 
 		const trimmedName = name.trim();
-		const keywordList = keywords
-			.split(',')
-			.map((k) => k.trim().toLowerCase())
-			.filter((k) => k.length > 0);
-
+		
+		// Validação de comprimento máximo
+		if (trimmedName.length > 50) {
+			error = 'Nome deve ter no máximo 50 caracteres';
+			return;
+		}
+		
+		// Validação de caracteres permitidos (apenas letras, números, espaços e alguns caracteres especiais)
+		const namePattern = /^[a-zA-Z0-9\s\-_áàâãéêíóôõúçÁÀÂÃÉÊÍÓÔÕÚÇ]+$/;
+		if (!namePattern.test(trimmedName)) {
+			error = 'Nome contém caracteres inválidos';
+			return;
+		}
+		
 		if (!trimmedName) {
 			error = 'Nome é obrigatório';
 			return;
 		}
 
+		const keywordList = keywords
+			.split(',')
+			.map((k) => k.trim().toLowerCase())
+			.filter((k) => k.length > 0);
+
+		// Validação de palavras-chave
 		if (keywordList.length === 0) {
 			error = 'Pelo menos uma palavra-chave é obrigatória';
 			return;
+		}
+		
+		// Validar cada palavra-chave (máximo 30 caracteres, apenas letras, números e hífens)
+		const keywordPattern = /^[a-zA-Z0-9\-_]+$/;
+		for (const keyword of keywordList) {
+			if (keyword.length > 30) {
+				error = `Palavra-chave "${keyword}" excede 30 caracteres`;
+				return;
+			}
+			if (!keywordPattern.test(keyword)) {
+				error = `Palavra-chave "${keyword}" contém caracteres inválidos`;
+				return;
+			}
 		}
 
 		if (editMonitor) {
@@ -202,10 +230,22 @@
 	.submit-btn,
 	.delete-btn {
 		padding: 0.5rem 1rem;
+		min-height: 44px;
+		min-width: 44px;
 		border-radius: 4px;
 		font-size: 0.7rem;
 		cursor: pointer;
 		transition: all 0.15s ease;
+	}
+
+	@media (max-width: 768px) {
+		.cancel-btn,
+		.submit-btn,
+		.delete-btn {
+			min-height: 44px;
+			min-width: 44px;
+			padding: 0.6rem 1.2rem;
+		}
 	}
 
 	.cancel-btn {

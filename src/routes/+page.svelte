@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { Header, Dashboard, Footer } from '$lib/components/layout';
-	import { MonitorFormModal, OnboardingModal } from '$lib/components/modals';
+	import { MonitorFormModal } from '$lib/components/modals';
 	import {
 		NewsPanel,
 		MarketsPanel,
@@ -20,10 +20,6 @@
 		FedPanel,
 		YouTubePanel
 	} from '$lib/components/panels';
-	
-	// #region agent log
-	fetch('http://127.0.0.1:7677/ingest/5e0c756f-9c62-45e2-85b5-b97035d41e0a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'+page.svelte:24',message:'Initializing lazy load components',data:{hypothesis:'D'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-	// #endregion
 	
 	// Lazy load componentes pesados - usando $state para reatividade
 	let MapPanel = $state<any>(null);
@@ -73,7 +69,6 @@
 
 	// Modal state
 	let monitorFormOpen = $state(false);
-	let onboardingOpen = $state(false);
 	let editingMonitor = $state<CustomMonitor | null>(null);
 
 	// Misc panel data
@@ -96,6 +91,9 @@
 			});
 		} catch (error) {
 			categories.forEach((cat) => news.setError(cat, String(error)));
+		} finally {
+			// Always clear loading state
+			categories.forEach((cat) => news.setLoading(cat, false));
 		}
 	}
 
@@ -108,21 +106,40 @@
 			markets.setCrypto(data.crypto);
 		} catch (error) {
 			console.error('Failed to load markets:', error);
+			// Set empty data to prevent blocking
+			markets.setIndices([]);
+			markets.setSectors([]);
+			markets.setCommodities([]);
+			markets.setCrypto([]);
 		}
 	}
 
 	async function loadMiscData() {
 		try {
-			const [predictionsData, contractsData, layoffsData] = await Promise.all([
+			// Add timeout for consistency, even though these are synchronous
+			const loadPromise = Promise.all([
 				fetchPolymarket(),
 				fetchGovContracts(),
 				fetchLayoffs()
 			]);
+			const timeoutPromise = new Promise((_, reject) =>
+				setTimeout(() => reject(new Error('Timeout ao carregar dados diversos')), 10000)
+			);
+
+			const [predictionsData, contractsData, layoffsData] = await Promise.race([
+				loadPromise,
+				timeoutPromise
+			]) as [Prediction[], Contract[], Layoff[]];
+
 			predictions = predictionsData;
 			contracts = contractsData;
 			layoffs = layoffsData;
 		} catch (error) {
 			console.error('Failed to load misc data:', error);
+			// Set default empty values to prevent blocking
+			predictions = [];
+			contracts = [];
+			layoffs = [];
 		}
 	}
 
@@ -150,6 +167,10 @@
 			console.error('Failed to load Fed data:', error);
 			fedIndicators.setError(String(error));
 			fedNews.setError(String(error));
+		} finally {
+			// Always clear loading state
+			fedIndicators.setLoading(false);
+			fedNews.setLoading(false);
 		}
 	}
 
@@ -157,7 +178,13 @@
 	async function handleRefresh() {
 		refresh.startRefresh();
 		try {
-			await Promise.all([loadNews(), loadMarkets()]);
+			// Add timeout to prevent infinite loading
+			const loadPromise = Promise.all([loadNews(), loadMarkets()]);
+			const timeoutPromise = new Promise((_, reject) => 
+				setTimeout(() => reject(new Error('Timeout ao atualizar dados')), 30000)
+			);
+			
+			await Promise.race([loadPromise, timeoutPromise]);
 			refresh.endRefresh();
 		} catch (error) {
 			refresh.endRefresh([String(error)]);
@@ -188,38 +215,39 @@
 		return $settings.enabled[id] !== false;
 	}
 
-	// Handle preset selection from onboarding
-	function handleSelectPreset(presetId: string) {
-		settings.applyPreset(presetId);
-		onboardingOpen = false;
-		// Refresh data after applying preset
-		handleRefresh();
-	}
-
-
 	// Initial load
 	onMount(() => {
-		// Check if first visit
-		if (!settings.isOnboardingComplete()) {
-			onboardingOpen = true;
-		}
-
 		// Load heavy components
 		loadHeavyComponents();
 
 		// Load initial data and track as refresh
 		async function initialLoad() {
 			refresh.startRefresh();
+			
+			// Safety timeout: garante que endRefresh() sempre seja chamado
+			const safetyTimeout = setTimeout(() => {
+				refresh.endRefresh(['Timeout de segurança: carregamento inicial excedeu 35 segundos']);
+			}, 35000);
+
 			try {
-				await Promise.all([
+				// Add timeout to prevent infinite loading
+				const loadPromise = Promise.all([
 					loadNews(),
 					loadMarkets(),
 					loadMiscData(),
 					loadWorldLeaders(),
 					loadFedData()
 				]);
+				
+				const timeoutPromise = new Promise((_, reject) => 
+					setTimeout(() => reject(new Error('Timeout ao carregar dados')), 30000)
+				);
+				
+				await Promise.race([loadPromise, timeoutPromise]);
+				clearTimeout(safetyTimeout);
 				refresh.endRefresh();
 			} catch (error) {
+				clearTimeout(safetyTimeout);
 				refresh.endRefresh([String(error)]);
 			}
 		}
@@ -385,7 +413,6 @@
 		onClose={() => (monitorFormOpen = false)}
 		editMonitor={editingMonitor}
 	/>
-	<OnboardingModal open={onboardingOpen} onSelectPreset={handleSelectPreset} />
 	<Footer />
 </div>
 

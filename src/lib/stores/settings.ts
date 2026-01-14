@@ -8,8 +8,6 @@ import {
 	PANELS,
 	NON_DRAGGABLE_PANELS,
 	PRESETS,
-	ONBOARDING_STORAGE_KEY,
-	PRESET_STORAGE_KEY,
 	type PanelId
 } from '$lib/config';
 
@@ -210,7 +208,6 @@ function createSettingsStore() {
 				localStorage.removeItem(STORAGE_KEYS.panels);
 				localStorage.removeItem(STORAGE_KEYS.order);
 				localStorage.removeItem(STORAGE_KEYS.sizes);
-				// Preserve onboarding status - do NOT remove ONBOARDING_STORAGE_KEY
 			}
 			set({ ...defaults, initialized: true });
 		},
@@ -223,59 +220,6 @@ function createSettingsStore() {
 			return state.sizes[panelId];
 		},
 
-		/**
-		 * Check if onboarding is complete
-		 */
-		isOnboardingComplete(): boolean {
-			if (!browser) return true;
-			return localStorage.getItem(ONBOARDING_STORAGE_KEY) === 'true';
-		},
-
-		/**
-		 * Get selected preset
-		 */
-		getSelectedPreset(): string | null {
-			if (!browser) return null;
-			return localStorage.getItem(PRESET_STORAGE_KEY);
-		},
-
-		/**
-		 * Apply a preset configuration
-		 */
-		applyPreset(presetId: string) {
-			const preset = PRESETS[presetId];
-		if (!preset) {
-			console.error('Preset desconhecido:', presetId);
-			return;
-		}
-
-			// Build panel settings - disable all panels first, then enable preset panels
-			const allPanelIds = Object.keys(PANELS) as PanelId[];
-			const newEnabled = Object.fromEntries(
-				allPanelIds.map((id) => [id, preset.panels.includes(id)])
-			) as Record<PanelId, boolean>;
-
-			update((state) => {
-				saveToStorage('panels', newEnabled);
-				return { ...state, enabled: newEnabled };
-			});
-
-			// Mark onboarding complete and save preset
-			if (browser) {
-				localStorage.setItem(ONBOARDING_STORAGE_KEY, 'true');
-				localStorage.setItem(PRESET_STORAGE_KEY, presetId);
-			}
-		},
-
-		/**
-		 * Reset onboarding to show modal again
-		 */
-		resetOnboarding() {
-			if (browser) {
-				localStorage.removeItem(ONBOARDING_STORAGE_KEY);
-				localStorage.removeItem(PRESET_STORAGE_KEY);
-			}
-		}
 	};
 }
 

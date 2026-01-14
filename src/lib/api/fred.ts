@@ -205,13 +205,32 @@ async function fetchTreasury10Y(): Promise<EconomicIndicator> {
 export async function fetchFedIndicators(): Promise<FedIndicators> {
 	logger.log('FRED API', 'Fetching Fed indicators');
 
-	const [fedFundsRate, cpi, treasury10Y] = await Promise.all([
-		fetchFedFundsRate(),
-		fetchCPI(),
-		fetchTreasury10Y()
-	]);
+	// Add timeout to prevent infinite waiting
+	const timeoutPromise = new Promise<FedIndicators>((_, reject) =>
+		setTimeout(() => reject(new Error('Timeout ao buscar indicadores do Fed')), 15000)
+	);
 
-	return { fedFundsRate, cpi, treasury10Y };
+	const fetchPromise = (async () => {
+		const [fedFundsRate, cpi, treasury10Y] = await Promise.all([
+			fetchFedFundsRate(),
+			fetchCPI(),
+			fetchTreasury10Y()
+		]);
+
+		return { fedFundsRate, cpi, treasury10Y };
+	})();
+
+	try {
+		return await Promise.race([fetchPromise, timeoutPromise]);
+	} catch (error) {
+		logger.warn('FRED API', 'Error fetching Fed indicators:', error);
+		// Return empty indicators on timeout or error
+		return {
+			fedFundsRate: { value: null, change: null, date: null, unit: '%' },
+			cpi: { value: null, change: null, date: null, unit: '%' },
+			treasury10Y: { value: null, change: null, date: null, unit: '%' }
+		};
+	}
 }
 
 // ============================================================================
@@ -339,29 +358,44 @@ async function fetchFedRssFeed(
 export async function fetchFedNews(): Promise<FedNewsItem[]> {
 	logger.log('Fed RSS', 'Fetching all Fed news feeds');
 
-	const results = await Promise.all(
-		FED_RSS_FEEDS.map((feed) => fetchFedRssFeed(feed.url, feed.type, feed.label))
+	// Add timeout to prevent infinite waiting
+	const timeoutPromise = new Promise<FedNewsItem[]>((_, reject) =>
+		setTimeout(() => reject(new Error('Timeout ao buscar notícias do Fed')), 15000)
 	);
 
-	// Flatten and dedupe by link
-	const seen = new Set<string>();
-	const allItems: FedNewsItem[] = [];
+	const fetchPromise = (async () => {
+		const results = await Promise.all(
+			FED_RSS_FEEDS.map((feed) => fetchFedRssFeed(feed.url, feed.type, feed.label))
+		);
 
-	for (const items of results) {
-		for (const item of items) {
-			if (!seen.has(item.link)) {
-				seen.add(item.link);
-				allItems.push(item);
+		// Flatten and dedupe by link
+		const seen = new Set<string>();
+		const allItems: FedNewsItem[] = [];
+
+		for (const items of results) {
+			for (const item of items) {
+				if (!seen.has(item.link)) {
+					seen.add(item.link);
+					allItems.push(item);
+				}
 			}
 		}
-	}
 
-	// Sort by timestamp (newest first), with Powell items boosted
-	return allItems.sort((a, b) => {
-		// Powell items get priority
-		if (a.isPowellRelated && !b.isPowellRelated) return -1;
-		if (!a.isPowellRelated && b.isPowellRelated) return 1;
-		// Then by timestamp
-		return b.timestamp - a.timestamp;
-	});
+		// Sort by timestamp (newest first), with Powell items boosted
+		return allItems.sort((a, b) => {
+			// Powell items get priority
+			if (a.isPowellRelated && !b.isPowellRelated) return -1;
+			if (!a.isPowellRelated && b.isPowellRelated) return 1;
+			// Then by timestamp
+			return b.timestamp - a.timestamp;
+		});
+	})();
+
+	try {
+		return await Promise.race([fetchPromise, timeoutPromise]);
+	} catch (error) {
+		logger.warn('Fed RSS', 'Error fetching Fed news:', error);
+		// Return empty array on timeout or error
+		return [];
+	}
 }

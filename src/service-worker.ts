@@ -5,7 +5,7 @@
 /// <reference lib="webworker" />
 /// <reference path="./service-worker.d.ts" />
 
-const VERSION = '3.0.0';
+const VERSION = '0.01';
 const CACHE_NAME = `watchman-v${VERSION}`;
 const STATIC_CACHE = `watchman-static-v${VERSION}`;
 const DATA_CACHE = `watchman-data-v${VERSION}`;
@@ -91,20 +91,23 @@ self.addEventListener('activate', (event) => {
 	const evt = event as ExtendableEvent;
 	evt.waitUntil(
 		caches.keys().then((cacheNames) => {
-			return Promise.all(
-				cacheNames
-					.filter((name) => {
-						// Deletar todos os caches que não correspondem à versão atual
-						return !name.includes(`v${VERSION}`) && 
-						       name.startsWith('watchman-');
-					})
-					.map((name) => {
-						console.log(`[Service Worker] Deletando cache antigo: ${name}`);
-						return caches.delete(name);
-					})
-			);
+			const oldCaches = cacheNames.filter((name) => {
+				// Deletar todos os caches que não correspondem à versão atual
+				return !name.includes(`v${VERSION}`) && name.startsWith('watchman-');
+			});
+
+			if (oldCaches.length > 0) {
+				// Logar apenas resumo (reduzir verbosidade)
+				// Em produção, logar apenas se houver muitos caches
+				if (oldCaches.length > 1) {
+					console.log(`[Service Worker] Deletando ${oldCaches.length} caches antigos`);
+				}
+			}
+
+			return Promise.all(oldCaches.map((name) => caches.delete(name)));
 		}).then(() => {
-			console.log(`[Service Worker] Ativado - versão ${VERSION}`);
+			// Logar apenas resumo (reduzir verbosidade)
+			// Remover log de ativação em produção
 			return (self as unknown as ServiceWorkerGlobalScope).clients.claim();
 		}).catch((error) => {
 			console.error('[Service Worker] Erro ao ativar:', error);

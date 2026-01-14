@@ -89,10 +89,12 @@ const SERVICE_CONFIG: Record<ServiceId, ServiceConfig> = {
 		id: 'cors_proxy',
 		baseUrl: null, // Uses proxy URLs from list
 		proxies: [
-			'https://watchman-proxy.seanthielen-e.workers.dev/?url=',
-			'https://api.allorigins.win/raw?url='
+			'https://corsproxy.io/?url=',
+			'https://api.allorigins.win/raw?url=',
+			'https://allorigins.win/get?url=',
+			'https://api.codetabs.com/v1/proxy?quest='
 		],
-		timeout: 12000,
+		timeout: 15000,
 		retries: 1, // Already has proxy fallback
 		cache: {
 			ttl: 5 * 60 * 1000,

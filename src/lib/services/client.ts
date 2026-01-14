@@ -7,6 +7,7 @@ import { CircuitBreakerRegistry, type CircuitBreaker } from './circuit-breaker';
 import { RequestDeduplicator } from './deduplicator';
 import { ServiceRegistry, type ServiceConfig, type ServiceId } from './registry';
 import { ServiceError, NetworkError, TimeoutError, CircuitOpenError } from './errors';
+import { proxyHealth } from './proxy-health';
 
 export interface RequestOptions {
 	params?: Record<string, string | number | boolean>;
@@ -239,12 +240,14 @@ export class ServiceClient {
 
 	/**
 	 * Calculate exponential backoff delay with jitter
+	 * Improved: starts with smaller delays, caps at reasonable max
 	 */
 	private getBackoffDelay(attempt: number): number {
-		// Base: 1s, 2s, 4s... + random 0-500ms jitter
-		const baseDelay = Math.pow(2, attempt) * 1000;
-		const jitter = Math.random() * 500;
-		return Math.min(baseDelay + jitter, 10000); // Max 10 seconds
+		// Base: 500ms, 1s, 2s, 4s... + random 0-300ms jitter
+		// Start with smaller delay for first retry
+		const baseDelay = attempt === 0 ? 500 : Math.pow(2, attempt - 1) * 1000;
+		const jitter = Math.random() * 300;
+		return Math.min(baseDelay + jitter, 8000); // Max 8 seconds (reduced from 10s)
 	}
 
 	/**
@@ -276,43 +279,120 @@ export class ServiceClient {
 	 * Fetch through CORS proxy with fallback
 	 */
 	async fetchWithProxy<T = string>(targetUrl: string, options: RequestOptions = {}): Promise<T> {
-		const proxies = ServiceRegistry.getCorsProxies();
+		const allProxies = ServiceRegistry.getCorsProxies();
 		const config = ServiceRegistry.get('CORS_PROXY');
 		if (!config) {
 			throw new ServiceError('CORS_PROXY service not configured');
 		}
 
+		// Reset old health data periodically
+		proxyHealth.resetOldHealth();
+
+		// Sort proxies by health (healthiest first)
+		const proxies = proxyHealth.getSortedProxies(allProxies);
+
 		let lastError: Error | undefined;
+		let timeoutCount = 0;
 
 		for (let i = 0; i < proxies.length; i++) {
 			const proxy = proxies[i];
 			const proxyUrl = proxy + encodeURIComponent(targetUrl);
 
-			try {
-				const response = await this.fetchWithTimeout<string>(
-					proxyUrl,
-					{
-						...options,
-						accept: 'application/rss+xml, application/xml, text/xml, */*',
-						responseType: 'text'
-					},
-					config
-				);
+			// Small delay between proxy attempts (except first)
+			if (i > 0) {
+				await this.delay(200 + Math.random() * 100); // 200-300ms delay
+			}
 
-				// Validate response (check for error pages)
-				if (
-					response &&
-					!response.includes('<!DOCTYPE html>') &&
-					!response.includes('error code:')
-				) {
-					return response as T;
+			try {
+				// Use fetch directly to check status before processing
+				const controller = new AbortController();
+				const timeout = options.timeout || config.timeout || 15000;
+				const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+				try {
+					const fetchOptions: RequestInit = {
+						...options.fetchOptions,
+						signal: controller.signal,
+						headers: {
+							Accept: options.accept || 'application/rss+xml, application/xml, text/xml, */*',
+							...options.headers
+						}
+					};
+
+					const response = await fetch(proxyUrl, fetchOptions);
+
+					// 408 (Request Timeout) é esperado em proxies públicos - tentar próximo proxy silenciosamente
+					if (response.status === 408) {
+						timeoutCount++;
+						proxyHealth.recordFailure(proxyUrl);
+						lastError = new NetworkError(`Proxy timeout (408)`, 408);
+						clearTimeout(timeoutId);
+						continue;
+					}
+
+					if (!response.ok) {
+						proxyHealth.recordFailure(proxyUrl);
+						lastError = new NetworkError(`HTTP ${response.status}: ${response.statusText}`, response.status);
+						clearTimeout(timeoutId);
+						continue;
+					}
+
+					clearTimeout(timeoutId);
+
+					// Get response text
+					const text = await response.text();
+					const trimmedText = text.trim();
+
+					// Validate response (check for error pages, HTML, or invalid formats)
+					// Skip if it's HTML, error pages, or empty
+					if (
+						!trimmedText ||
+						trimmedText.startsWith('<!DOCTYPE') ||
+						trimmedText.startsWith('<html') ||
+						trimmedText.startsWith('<HTML') ||
+						trimmedText.includes('error code:') ||
+						trimmedText.includes('Error:') ||
+						trimmedText.includes('ERROR:') ||
+						(trimmedText.startsWith('<') && trimmedText.includes('</'))
+					) {
+					// Invalid response - try next proxy
+					proxyHealth.recordFailure(proxyUrl);
+					lastError = new Error('Invalid response format (HTML or error page)');
+					continue;
+					}
+
+					// Check if it looks like JSON (starts with { or [)
+					// For text/plain responses that might be JSON, try to parse
+					const contentType = response.headers.get('content-type') || '';
+					if (contentType.includes('text/plain') && (trimmedText.startsWith('{') || trimmedText.startsWith('['))) {
+						// Might be JSON wrapped in text/plain - return it
+						return text as T;
+					}
+
+					// Valid response - record success
+					proxyHealth.recordSuccess(proxyUrl);
+					return text as T;
+				} catch (error) {
+					clearTimeout(timeoutId);
+					if ((error as Error).name === 'AbortError') {
+						timeoutCount++;
+						proxyHealth.recordFailure(proxyUrl);
+						lastError = new TimeoutError(proxyUrl, timeout);
+						continue;
+					}
+					proxyHealth.recordFailure(proxyUrl);
+					lastError = error as Error;
 				}
 			} catch (e) {
-				this.log(`Proxy ${i + 1} failed: ${(e as Error).message}`);
+				// Only log if not a timeout (408) or if in dev mode
+				if (!(e instanceof NetworkError && e.status === 408) && !(e instanceof TimeoutError)) {
+					this.log(`Proxy ${i + 1} failed: ${(e as Error).message}`);
+				}
 				lastError = e as Error;
 			}
 		}
 
+		// Only throw if all proxies failed
 		throw lastError || new NetworkError('All CORS proxies failed');
 	}
 

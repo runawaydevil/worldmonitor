@@ -207,9 +207,14 @@
 		border: none;
 		color: var(--text-secondary);
 		cursor: pointer;
-		padding: 0.25rem;
+		padding: 0.5rem;
+		min-height: 44px;
+		min-width: 44px;
 		font-size: 0.8rem;
 		line-height: 1;
+		display: flex;
+		align-items: center;
+		justify-content: center;
 	}
 
 	.panel-collapse-btn:hover {

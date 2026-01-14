@@ -114,19 +114,27 @@ export async function fetchCategoryNews(category: NewsCategory): Promise<NewsIte
 			throw new Error(`HTTP ${response.status}: ${response.statusText}`);
 		}
 
-		// Check content type before parsing as JSON
-		const contentType = response.headers.get('content-type');
-		if (!contentType?.includes('application/json')) {
-			logger.warn('News API', `Non-JSON response for ${category}:`, contentType);
+		// Get response text first
+		const text = await response.text();
+		const trimmedText = text.trim();
+
+		// Check if response is valid (not HTML, not empty, looks like JSON)
+		if (!trimmedText || trimmedText.startsWith('<') || trimmedText.startsWith('<!DOCTYPE')) {
+			logger.warn('News API', `Invalid response format for ${category}: HTML or empty`);
 			return [];
 		}
 
-		const text = await response.text();
+		// Try to parse as JSON (even if content-type is text/plain)
 		let data: GdeltResponse;
 		try {
+			// Check if it looks like JSON
+			if (!trimmedText.startsWith('{') && !trimmedText.startsWith('[')) {
+				logger.warn('News API', `Non-JSON response for ${category}:`, trimmedText.slice(0, 100));
+				return [];
+			}
 			data = JSON.parse(text);
-		} catch {
-			logger.warn('News API', `Invalid JSON for ${category}:`, text.slice(0, 100));
+		} catch (parseError) {
+			logger.warn('News API', `Invalid JSON for ${category}:`, trimmedText.slice(0, 100));
 			return [];
 		}
 
@@ -157,17 +165,31 @@ function createEmptyNewsResult(): Record<NewsCategory, NewsItem[]> {
  * Fetch all news - sequential with delays to avoid rate limiting
  */
 export async function fetchAllNews(): Promise<Record<NewsCategory, NewsItem[]>> {
-	const result = createEmptyNewsResult();
+	// Add timeout to prevent infinite waiting
+	const timeoutPromise = new Promise<Record<NewsCategory, NewsItem[]>>((_, reject) => 
+		setTimeout(() => reject(new Error('Timeout ao buscar notícias')), 25000)
+	);
+	
+	const fetchPromise = (async () => {
+		const result = createEmptyNewsResult();
 
-	for (let i = 0; i < NEWS_CATEGORIES.length; i++) {
-		const category = NEWS_CATEGORIES[i];
+		for (let i = 0; i < NEWS_CATEGORIES.length; i++) {
+			const category = NEWS_CATEGORIES[i];
 
-		if (i > 0) {
-			await delay(API_DELAYS.betweenCategories);
+			if (i > 0) {
+				await delay(API_DELAYS.betweenCategories);
+			}
+
+			try {
+				result[category] = await fetchCategoryNews(category);
+			} catch (error) {
+				logger.warn('News API', `Error fetching category ${category}:`, error);
+				result[category] = []; // Continue with other categories
+			}
 		}
 
-		result[category] = await fetchCategoryNews(category);
-	}
+		return result;
+	})();
 
-	return result;
+	return Promise.race([fetchPromise, timeoutPromise]);
 }

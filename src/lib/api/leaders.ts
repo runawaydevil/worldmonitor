@@ -65,26 +65,41 @@ async function fetchLeaderNews(leader: WorldLeader): Promise<WorldLeader> {
  * Batches requests to avoid rate limits
  */
 export async function fetchWorldLeaders(): Promise<WorldLeader[]> {
-	const batchSize = 5;
-	const results: WorldLeader[] = [];
+	// Add timeout to prevent infinite waiting
+	const timeoutPromise = new Promise<WorldLeader[]>((_, reject) =>
+		setTimeout(() => reject(new Error('Timeout ao buscar líderes mundiais')), 20000)
+	);
 
-	// Fetch in batches to avoid rate limits
-	for (let i = 0; i < WORLD_LEADERS.length; i += batchSize) {
-		const batch = WORLD_LEADERS.slice(i, i + batchSize);
-		const batchResults = await Promise.allSettled(batch.map(fetchLeaderNews));
+	const fetchPromise = (async () => {
+		const batchSize = 5;
+		const results: WorldLeader[] = [];
 
-		for (const result of batchResults) {
-			if (result.status === 'fulfilled') {
-				results.push(result.value);
+		// Fetch in batches to avoid rate limits
+		for (let i = 0; i < WORLD_LEADERS.length; i += batchSize) {
+			const batch = WORLD_LEADERS.slice(i, i + batchSize);
+			const batchResults = await Promise.allSettled(batch.map(fetchLeaderNews));
+
+			for (const result of batchResults) {
+				if (result.status === 'fulfilled') {
+					results.push(result.value);
+				}
+			}
+
+			// Small delay between batches
+			if (i + batchSize < WORLD_LEADERS.length) {
+				await new Promise((resolve) => setTimeout(resolve, 300));
 			}
 		}
 
-		// Small delay between batches
-		if (i + batchSize < WORLD_LEADERS.length) {
-			await new Promise((resolve) => setTimeout(resolve, 300));
-		}
-	}
+		// Sort by news activity (leaders with more news first)
+		return results.sort((a, b) => (b.news?.length || 0) - (a.news?.length || 0));
+	})();
 
-	// Sort by news activity (leaders with more news first)
-	return results.sort((a, b) => (b.news?.length || 0) - (a.news?.length || 0));
+	try {
+		return await Promise.race([fetchPromise, timeoutPromise]);
+	} catch (error) {
+		console.warn('Error fetching world leaders:', error);
+		// Return empty array on timeout or error
+		return [];
+	}
 }

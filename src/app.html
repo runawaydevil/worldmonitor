@@ -7,6 +7,9 @@
 		<meta name="author" content="Grupo Murad" />
 		<meta name="theme-color" content="#0a0a0a" />
 		<meta name="robots" content="index, follow" />
+		<!-- CSP meta tag (fallback se headers HTTP não estiverem disponíveis) -->
+		<!-- Nota: frame-ancestors não funciona em meta tags, apenas em headers HTTP -->
+		<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https://api.allorigins.win https://corsproxy.io https://api.coingecko.com https://api.gdeltproject.org https://api.stlouisfed.org https://finnhub.io https://earthquake.usgs.gov https://cdn.jsdelivr.net https://*.workers.dev; frame-src 'self' https://www.youtube.com;" />
 		<link rel="icon" type="image/svg+xml" href="%sveltekit.assets%/favicon.svg" />
 		<link rel="alternate icon" href="%sveltekit.assets%/favicon.ico" />
 		<link rel="apple-touch-icon" href="%sveltekit.assets%/favicon.svg" />
